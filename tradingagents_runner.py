@@ -22,11 +22,18 @@ from contextlib import redirect_stdout
 
 
 def main() -> int:
+    # Capture the real stdout up front. Everything risky runs with stdout swapped
+    # to stderr; ONLY the final JSON line is written to this saved handle, so the
+    # result no longer has to "happen to be the last stdout line".
+    real_stdout = sys.stdout
+
     raw = sys.stdin.read()
     try:
         req = json.loads(raw)
     except Exception as exc:  # noqa: BLE001 - report any parse failure as JSON
-        sys.stdout.write(json.dumps({"ok": False, "error": f"bad input json: {exc}"}))
+        real_stdout.write(
+            json.dumps({"ok": False, "ticker": None, "error": f"bad input json: {exc}"})
+        )
         return 0
 
     ticker = req.get("ticker")
@@ -35,34 +42,37 @@ def main() -> int:
     overrides = req.get("config_overrides") or {}
 
     try:
-        from tradingagents.default_config import DEFAULT_CONFIG
-        from tradingagents.graph.trading_graph import TradingAgentsGraph
-
-        config = {**DEFAULT_CONFIG, **overrides}
-        # Redirect any print/rich output the graph emits to stderr so stdout stays clean.
+        # Swap stdout to stderr for the ENTIRE risky region — the imports (which may
+        # print banners at module-load time), graph construction, and propagate — so
+        # no library chatter can ever reach real stdout. The result dict is built here
+        # too, then written to the saved real stdout outside the swap.
         with redirect_stdout(sys.stderr):
+            from tradingagents.default_config import DEFAULT_CONFIG
+            from tradingagents.graph.trading_graph import TradingAgentsGraph
+
+            config = {**DEFAULT_CONFIG, **overrides}
             graph = TradingAgentsGraph(debug=False, config=config)
             final_state, decision = graph.propagate(ticker, trade_date, asset_type)
 
-        state = final_state if isinstance(final_state, dict) else {}
-        result = {
-            "ok": True,
-            "ticker": ticker,
-            "trade_date": trade_date,
-            "decision": str(decision) if decision is not None else None,
-            "reports": {
-                "market_report": state.get("market_report"),
-                "sentiment_report": state.get("sentiment_report"),
-                "news_report": state.get("news_report"),
-                "fundamentals_report": state.get("fundamentals_report"),
-                "final_trade_decision": state.get("final_trade_decision"),
-            },
-        }
-        sys.stdout.write(json.dumps(result))
+            state = final_state if isinstance(final_state, dict) else {}
+            result = {
+                "ok": True,
+                "ticker": ticker,
+                "trade_date": trade_date,
+                "decision": str(decision) if decision is not None else None,
+                "reports": {
+                    "market_report": state.get("market_report"),
+                    "sentiment_report": state.get("sentiment_report"),
+                    "news_report": state.get("news_report"),
+                    "fundamentals_report": state.get("fundamentals_report"),
+                    "final_trade_decision": state.get("final_trade_decision"),
+                },
+            }
+        real_stdout.write(json.dumps(result))
     except Exception as exc:  # noqa: BLE001 - any failure becomes a degraded JSON result
         import traceback
 
-        sys.stdout.write(
+        real_stdout.write(
             json.dumps(
                 {
                     "ok": False,
