@@ -16,7 +16,6 @@ Protocol:
            to stderr so stdout carries only the result line.
 """
 
-import io
 import json
 import sys
 from contextlib import redirect_stdout
@@ -41,11 +40,9 @@ def main() -> int:
 
         config = {**DEFAULT_CONFIG, **overrides}
         # Redirect any print/rich output the graph emits to stderr so stdout stays clean.
-        sink = io.StringIO()
         with redirect_stdout(sys.stderr):
             graph = TradingAgentsGraph(debug=False, config=config)
             final_state, decision = graph.propagate(ticker, trade_date, asset_type)
-        _ = sink  # reserved; graph output already diverted to stderr
 
         state = final_state if isinstance(final_state, dict) else {}
         result = {
@@ -66,7 +63,14 @@ def main() -> int:
         import traceback
 
         sys.stdout.write(
-            json.dumps({"ok": False, "ticker": ticker, "error": str(exc), "trace": traceback.format_exc()[-1500:]})
+            json.dumps(
+                {
+                    "ok": False,
+                    "ticker": ticker,
+                    "error": str(exc),
+                    "trace": traceback.format_exc()[-1500:],
+                }
+            )
         )
     return 0
 
