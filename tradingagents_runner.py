@@ -39,7 +39,10 @@ def main() -> int:
     ticker = req.get("ticker")
     trade_date = req.get("trade_date")
     asset_type = req.get("asset_type", "stock")
-    overrides = req.get("config_overrides") or {}
+    # Allowlist the overrides (defense in depth; the adapter filters too). Never let
+    # caller-supplied keys redirect paths/urls inside the TradingAgents process.
+    _allowed = {"deep_think_llm", "quick_think_llm", "max_debate_rounds", "online_tools"}
+    overrides = {k: v for k, v in (req.get("config_overrides") or {}).items() if k in _allowed}
 
     try:
         # Swap stdout to stderr for the ENTIRE risky region — the imports (which may
